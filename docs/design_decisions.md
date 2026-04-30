@@ -154,3 +154,120 @@ deleted — the foreign key prevents it. Without a retirement mechanism, old
 plans accumulate and remain selectable for new subscriptions indefinitely.
 `is_active = FALSE` allows a plan to be retired cleanly: existing
 subscriptions are unaffected, new subscriptions cannot use it.
+
+## Phase 1 — Seed Data (Part 2)
+
+### Fixed UUIDs instead of gen_random_uuid()
+
+All seed rows use hardcoded UUIDs in a structured format
+(e.g. `'b1000000-0000-0000-0000-000000000001'`).
+
+**Why:** `gen_random_uuid()` in seed data produces different IDs on every
+run. That breaks any query, test, or foreign key reference that targets a
+specific row by ID. Fixed UUIDs make the seed deterministic — the same IDs
+exist in every developer environment, every CI run, and every test assertion.
+
+The structured format (incrementing last segment per table, unique prefix per
+table letter) makes it easy to read a UUID in a query result and immediately
+know which table and which row it belongs to without looking it up.
+
+---
+
+### Six tenants, not five — the soft-deleted case is load-bearing
+
+I had originally planned for 5 users as the base case
+but I have given the seed six, and the sixth
+(Defunct Systems) is soft-deleted.
+
+**Why:** Five active tenants test the happy path. The sixth tests the
+discipline of `WHERE deleted_at IS NULL`. Any query that forgets this filter
+will silently include Defunct Systems in its results — wrong revenue totals,
+wrong active tenant counts. Having the corrupt case in the seed means the bug
+shows up in development, not in a job interview demo (That would be embarassing).
+
+---
+
+### One tenant per edge case, not all edge cases on one tenant
+
+Each tenant demonstrates exactly one non-standard situation:
+- Acme Corp — clean payment history (baseline)
+- Bright Ledger — annual billing cycle
+- Nomad Stack — past_due status + uncollectible invoice
+- Pebble HR — plan upgrade mid-lifecycle, voided invoice, soft-deleted user
+- Drifter Tools — trialing with no invoices
+- Defunct Systems — soft-deleted tenant with preserved history
+
+**Why:** Stacking multiple edge cases on one tenant makes it impossible to
+isolate which condition caused a query to fail. One edge case per tenant means
+a broken query result points directly at the scenario responsible.
+
+---
+
+### Drifter Tools has no invoices — intentionally
+
+Drifter Tools is trialing and has zero rows in the `invoices` table.
+
+**Why:** Any query that joins `subscriptions` to `invoices` with an
+`INNER JOIN` will silently drop Drifter Tools from the result set. That is a
+real bug that I have found to actually appear in production billing systems. The seed makes it
+detectable in development. The correct join is `LEFT JOIN`. This case exists
+to catch that mistake.
+
+---
+
+### Pebble HR has two subscription rows for the same tenant
+
+The plan upgrade from starter to pro is represented as two separate
+subscription rows — one `cancelled`, one `active` — not as an UPDATE to the
+original row.
+
+**Why:** Updating a subscription row to change its plan destroys the history
+of what the tenant was on before. Two rows preserve the full lifecycle: when
+the old plan started, when it was cancelled, when the new plan began. This
+is the correct pattern I have found and around Phase 5-6 I plan to implement a proration function that will
+operate on cases like this in production. The seed establishes the pattern now so Phase 5-6 has realistic
+data to work against.
+
+---
+
+### The voided invoice on Pebble HR is intentional, not a mistake
+
+Invoice `e1000000-0000-0000-0000-000000000012` has `status = 'void'` and
+`amount_cents = 2900` against the cancelled starter subscription.
+
+**Why:** This represents an invoice that was generated for a billing period
+that was cut short by the plan upgrade. Voiding it — rather than deleting it
+or never creating it — is the correct pattern. The financial record exists,
+it is marked void, and the replacement invoice was issued under the new
+subscription. Any revenue query must exclude void invoices from totals. The
+seed makes that requirement visible. Its always important to preserve records
+especially in systems that deal with finance.
+
+---
+
+### Defunct Systems invoices are retained after the tenant is soft-deleted
+
+The tenant `defunct-systems` has `deleted_at` set, but its invoices and
+subscription rows remain in the database untouched.
+
+**Why:** Soft delete means the tenant is inactive — it does not mean their
+financial history is erased. Invoices may need to be referenced for
+chargebacks, disputes, or regulatory audit. Cascading a soft delete into
+financial records would be a compliance failure. The seed demonstrates that
+the correct behaviour is: filter the tenant out of active queries, but leave
+every related record intact.
+
+---
+
+### Invoice dates follow real billing timing
+
+Invoice `created_at` values are set to the first of each month. `due_date`
+is set 7 days after creation. `paid_at` is 2–4 days after creation for paid
+invoices.
+
+**Why:** Unrealistic dates (all invoices on the same day, due dates before
+creation) would cause date-range queries to return wrong results and mask
+bugs in billing window logic. Realistic timing means the seed data behaves
+like production data under any query that filters or aggregates by date.
+**Note:** I had similar issues with projects back in College, I would just assign
+randomly generated values for demo's and it would occassionally break application logic.
