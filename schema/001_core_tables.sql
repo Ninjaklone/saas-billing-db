@@ -1,0 +1,4 @@
+-- I did not plan to create this folder.
+-- But for the sake of Modularity without the need to comb through the raw 'schema.sql'
+-- file, I'll divide the key sections up amongst several files.
+-- If there are any increments they will go in schema/migrations/.
