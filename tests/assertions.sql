@@ -334,3 +334,38 @@ RAISE INFO '---';
 RAISE INFO 'All assertions complete. Rolling back.';
 
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- SUCCESS: Should look like whats below
+-- --------------------------------------------------------------------------- 
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" duplicate slug rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" uppercase slug rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" slug with space rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" trailing hyphen slug rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" deleted_at before created_at rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: tenants â?" NULL name rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: plans â?" negative price_cents rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: plans â?" invalid billing_cycle rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: plans â?" api_limit of 0 rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: plans â?" negative api_limit rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: plans â?" duplicate plan name rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" duplicate email within tenant rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" same email accepted across different tenants
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" invalid role rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" malformed email rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" deleted_at before created_at rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: users â?" non-existent tenant_id rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: subscriptions â?" invalid status rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: subscriptions â?" period_end before period_start rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: subscriptions â?" cancelled status with NULL cancelled_at rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: subscriptions â?" active status with cancelled_at set rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: subscriptions â?" non-existent plan_id rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" negative amount_cents rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" invalid status rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" paid status with NULL paid_at rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" non-paid status with paid_at set rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" due_date before created_at rejected
+-- psql:tests/assertions.sql:336: INFO:  PASS: invoices â?" non-existent subscription_id rejected
+-- psql:tests/assertions.sql:336: INFO:  ---
+-- psql:tests/assertions.sql:336: INFO:  All assertions complete. Rolling back.
+-- DO
