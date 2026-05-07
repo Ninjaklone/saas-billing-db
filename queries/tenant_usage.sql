@@ -14,6 +14,19 @@
 --   Which tenants are active right now, what plan are they on, and how much
 --   do they currently owe?
 --
+-- Edge cases handled:
+--   - LEFT JOIN from subscriptions to invoices — a tenant on a trial
+--     (Drifter Tools) has no invoices. INNER JOIN would drop them. They
+--     should appear with outstanding_cents = 0.
+--   - COALESCE on the invoice sum — NULL (no invoices) is treated as 0,
+--     not left as NULL in the output.
+--   - Only active and trialing subscriptions are included. Cancelled and
+--     past_due tenants are intentionally excluded from this view of
+--     "current usage". invoice_history.sql exists for those.
+--   - Soft-deleted tenants are excluded.
+--   - Pebble HR's cancelled starter subscription MUST not appear here —
+--     only their active pro subscription should. 
+--
 -- Joins:
 --   tenants -> subscriptions (on tenant_id, filtered to active/trialing)
 --   subscriptions -> plans   (on plan_id)
