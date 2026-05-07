@@ -63,4 +63,49 @@ ORDER BY
     billing_month ASC;
 
 
--- Note: I'll add two more variant demonstrating additional usecases.
+-- ---------------------------------------------------------------------------
+-- Variant: revenue summary across all tenants for a specific month
+-- ---------------------------------------------------------------------------
+-- Swap the WHERE clause date filter to parameterise by billing month.
+-- Example: April 2025 revenue across all active tenants.
+
+SELECT
+    t.name                                          AS tenant_name,
+    p.name                                          AS plan_name,
+    SUM(i.amount_cents)                             AS total_cents,
+    ROUND(SUM(i.amount_cents) / 100.0, 2)           AS total_dollars
+FROM invoices i
+JOIN subscriptions s ON s.id = i.subscription_id
+JOIN plans         p ON p.id = s.plan_id
+JOIN tenants       t ON t.id = i.tenant_id
+WHERE i.status               = 'paid'
+  AND t.deleted_at          IS NULL
+  AND date_trunc('month', i.created_at) = date_trunc('month', '2025-04-01'::timestamptz)
+GROUP BY
+    t.name,
+    p.name
+ORDER BY
+    total_cents DESC;
+
+
+-- ---------------------------------------------------------------------------
+-- Variant: lifetime revenue per tenant (single row per tenant)
+-- ---------------------------------------------------------------------------
+
+SELECT
+    t.id                                            AS tenant_id,
+    t.name                                          AS tenant_name,
+    COUNT(i.id)                                     AS total_invoices_paid,
+    SUM(i.amount_cents)                             AS lifetime_cents,
+    ROUND(SUM(i.amount_cents) / 100.0, 2)           AS lifetime_dollars,
+    MIN(i.paid_at)                                  AS first_payment_at,
+    MAX(i.paid_at)                                  AS most_recent_payment_at
+FROM invoices i
+JOIN tenants t ON t.id = i.tenant_id
+WHERE i.status      = 'paid'
+  AND t.deleted_at IS NULL
+GROUP BY
+    t.id,
+    t.name
+ORDER BY
+    lifetime_cents DESC;
