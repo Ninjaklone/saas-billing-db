@@ -389,11 +389,11 @@ VALUES (
 The partial index only covers `status = 'active'`.
 
 ```sql
-INSERT INTO subscriptions (tenant_id, plan_id, status, current_period_start, current_period_end, cancelled_at)
+INSERT INTO subscriptions (tenant_id, plan_id, status, current_period_start, current_period_end, cancelled_at, created_at)
 VALUES (
     'b1000000-0000-0000-0000-000000000001',
     'a1000000-0000-0000-0000-000000000002',
-    'cancelled', '2023-01-01 00:00:00+00', '2023-06-14 23:59:59+00', '2023-06-14 12:00:00+00'
+    'cancelled', '2023-01-01 00:00:00+00', '2023-06-14 23:59:59+00', '2023-06-14 12:00:00+00', '2023-01-01 00:00:00+00'
 );
 -- Expected: INSERT 0 1
 ```
