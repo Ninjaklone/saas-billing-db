@@ -79,3 +79,59 @@ CREATE INDEX api_usage_events_recorded_at_idx
 -- What one row represents:
 --   The total API calls a tenant made within a specific subscription
 --   billing period, broken down by endpoint.
+--
+-- Note: This is preferrable over a table as a table would need to be maintained.
+
+CREATE MATERIALIZED VIEW billing_summaries AS
+SELECT
+    t.id                                AS tenant_id,
+    t.name                              AS tenant_name,
+    s.id                                AS subscription_id,
+    p.name                              AS plan_name,
+    p.api_limit                         AS api_limit,
+    e.endpoint                          AS endpoint,
+    s.current_period_start              AS period_start,
+    s.current_period_end                AS period_end,
+    SUM(e.event_count)                  AS total_calls,
+    -- calls remaining before hitting the plan limit (NULL if unlimited)
+    CASE
+        WHEN p.api_limit IS NULL THEN NULL
+        ELSE p.api_limit - SUM(e.event_count)
+    END                                 AS calls_remaining,
+    -- percentage of limit consumed (NULL if unlimited)
+    CASE
+        WHEN p.api_limit IS NULL THEN NULL
+        ELSE ROUND(SUM(e.event_count) * 100.0 / p.api_limit, 2)
+    END                                 AS pct_limit_consumed,
+    now()                               AS last_refreshed_at
+FROM api_usage_events e
+JOIN tenants       t ON t.id        = e.tenant_id
+JOIN subscriptions s ON s.tenant_id = e.tenant_id
+                     AND e.recorded_at >= s.current_period_start
+                     AND e.recorded_at <  s.current_period_end
+JOIN plans         p ON p.id        = s.plan_id
+WHERE t.deleted_at IS NULL
+  AND s.status IN ('active', 'trialing', 'past_due')
+GROUP BY
+    t.id,
+    t.name,
+    s.id,
+    p.name,
+    p.api_limit,
+    e.endpoint,
+    s.current_period_start,
+    s.current_period_end
+WITH DATA;
+
+COMMENT ON MATERIALIZED VIEW billing_summaries
+    IS 'Pre-aggregated API usage per tenant per billing cycle per endpoint. Refresh with REFRESH MATERIALIZED VIEW CONCURRENTLY billing_summaries.';
+
+
+-- Unique index required for CONCURRENTLY refresh.
+-- Also the natural lookup key for this view.
+CREATE UNIQUE INDEX billing_summaries_unique_idx
+    ON billing_summaries (subscription_id, endpoint);
+
+-- tenant_id index for tenant-scoped lookups.
+CREATE INDEX billing_summaries_tenant_idx
+    ON billing_summaries (tenant_id);
