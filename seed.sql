@@ -230,3 +230,51 @@ INSERT INTO invoices (id, tenant_id, subscription_id, amount_cents, status, due_
     ('e1000000-0000-0000-0000-000000000016',
      'b1000000-0000-0000-0000-000000000006',
      'd1000000-0000-0000-0000-000000000007', 2900, 'paid', '2024-05-08', '2024-05-03 10:00:00+00', '2024-05-01 00:00:00+00');
+
+
+-- ---------------------------------------------------------------------------
+-- api_usage_events seed
+-- ---------------------------------------------------------------------------
+-- Hourly buckets across April 2025 for active tenants.
+-- Covers: normal usage, a tenant approaching their API limit (Nomad Stack
+-- on starter with 10k limit), and a tenant on an unlimited plan (Acme Corp).
+-- Drifter Tools is trialing — included to verify they appear in
+-- billing_summaries with usage correctly scoped to their trial period.
+
+INSERT INTO api_usage_events (tenant_id, recorded_at, endpoint, event_count) VALUES
+
+    -- Acme Corp (pro, unlimited) — steady usage across two endpoints
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-01 09:00:00+00', '/api/v1/invoices',      142),
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-01 09:00:00+00', '/api/v1/subscriptions',  87),
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-01 10:00:00+00', '/api/v1/invoices',      198),
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-01 10:00:00+00', '/api/v1/subscriptions',  64),
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-02 09:00:00+00', '/api/v1/invoices',      211),
+    ('b1000000-0000-0000-0000-000000000001', '2025-04-02 09:00:00+00', '/api/v1/subscriptions', 103),
+
+    -- Bright Ledger (enterprise, unlimited) — lower volume, single endpoint
+    ('b1000000-0000-0000-0000-000000000002', '2025-04-01 08:00:00+00', '/api/v1/invoices',       45),
+    ('b1000000-0000-0000-0000-000000000002', '2025-04-01 14:00:00+00', '/api/v1/invoices',       62),
+    ('b1000000-0000-0000-0000-000000000002', '2025-04-02 08:00:00+00', '/api/v1/invoices',       38),
+
+    -- Nomad Stack (starter, 10k limit) — heavy usage, approaching limit
+    -- Total here: 8,847 calls — close to the 10k ceiling
+    ('b1000000-0000-0000-0000-000000000003', '2025-03-01 09:00:00+00', '/api/v1/invoices',     2341),
+    ('b1000000-0000-0000-0000-000000000003', '2025-03-01 10:00:00+00', '/api/v1/invoices',     1876),
+    ('b1000000-0000-0000-0000-000000000003', '2025-03-02 09:00:00+00', '/api/v1/invoices',     2109),
+    ('b1000000-0000-0000-0000-000000000003', '2025-03-02 10:00:00+00', '/api/v1/invoices',     2521),
+
+    -- Pebble HR (pro, unlimited) — usage split across both subscription periods
+    -- Events during the old starter subscription period
+    ('b1000000-0000-0000-0000-000000000004', '2024-04-20 11:00:00+00', '/api/v1/users',          93),
+    ('b1000000-0000-0000-0000-000000000004', '2024-04-20 14:00:00+00', '/api/v1/users',          71),
+    -- Events during the current pro subscription period
+    ('b1000000-0000-0000-0000-000000000004', '2025-04-01 09:00:00+00', '/api/v1/users',         187),
+    ('b1000000-0000-0000-0000-000000000004', '2025-04-01 09:00:00+00', '/api/v1/invoices',      134),
+    ('b1000000-0000-0000-0000-000000000004', '2025-04-02 09:00:00+00', '/api/v1/users',         209),
+
+    -- Drifter Tools (trialing, starter) — light usage within trial period
+    ('b1000000-0000-0000-0000-000000000005', '2025-03-05 10:00:00+00', '/api/v1/invoices',       28),
+    ('b1000000-0000-0000-0000-000000000005', '2025-03-05 11:00:00+00', '/api/v1/invoices',       14);
+
+-- Defunct Systems intentionally has no usage events.
+-- Their subscription was cancelled before this table existed in the schema.
