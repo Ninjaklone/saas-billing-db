@@ -271,3 +271,145 @@ bugs in billing window logic. Realistic timing means the seed data behaves
 like production data under any query that filters or aggregates by date.
 **Note:** I had similar issues with projects back in College, I would just assign
 randomly generated values for demo's and it would occassionally break application logic.
+
+## Phase 2 - Indexes
+### The Logic behind the process of perpetually picking the right indexes everytime
+
+Originally, I had planned to give insight into why I wrote the indexes I did and the logic behind 
+the index for each table (or combination of tables) and why it was necessary for this particular use-case but instead I
+think it would be better to simply draw up a logical framework for adding indexes to just about 
+any relational database so that anyone in the future seeing this project gets insight into Performance
+Tuning as it pertains to writing indexes. I'll start with the Query Planner, the core of index usage in any DBMS.
+
+---
+
+### Why bringing the query planner into the loop matters
+
+PostgreSQL’s planner chooses indexes by treating query execution as a cost‑minimization problem:
+it enumerates possible access paths (sequential, index, bitmap, index‑only), estimates I/O/CPU/memory 
+costs using table statistics and planner cost constants, and selects the lowest‑cost plan - you make 
+this reliable by keeping statistics accurate, designing indexes to match real query patterns, and 
+monitoring planner behavior. Cost based optimization is the game. The planner assigns a numeric cost 
+to each candidate plan composed of startup cost, per‑tuple CPU cost, and I/O cost; parameters like 
+seq_page_cost, random_page_cost, and cpu_tuple_cost shape those estimates. The chosen plan is the 
+one with the lowest estimated total cost **and thats where you come in**. 
+
+When an index exists that can satisfy a predicate or ordering, the planner creates index scan and index‑only 
+scan paths alongside sequential and bitmap options. Indexes are therefore alternative routes the planner can 
+pick if they reduce estimated work. Why it matters?
+
+### Why selectivity and statistics matter
+
+- **Selectivity drives index usefulness**. The planner uses column statistics (distinct counts, most‑common values, 
+histograms, correlation) to estimate how many rows a predicate will return. Highly selective predicates (few matching rows) 
+favor index scans; low selectivity favors sequential scans. Stale or insufficient statistics lead to systematically wrong 
+choices and your job when tuning performance is eliminate such behaviour.
+- **Correlation and physical order affect cost**. If heap rows are poorly correlated with an index’s logical order, index scans 
+cause many random heap fetches and in turn become expensive; the planner factors this via statistics and correlation metrics
+so you usually just have point it in the right direction. 
+
+### So how do you get the planner to make effectively "right" choices?
+
+- **Keep statistics fresh and rich**. Regular ANALYZE (or tuned default_statistics_target and per‑column statistics) ensures 
+the planner’s estimates reflect reality; for skewed distributions raise statistics targets.
+
+- **Design indexes for real query patterns**. Indexes should match common WHERE, JOIN, and ORDER BY patterns; the planner 
+will only consider indexes that can satisfy the operators and sort requirements. Choose the correct index type 
+(B‑tree, GIN/GiST, BRIN) for the workload. If you are unsure of what counts as "real query pattern", check index statistics,
+and make a google search if interpretation might be a problem.
+
+- **Monitor and iterate**. Use EXPLAIN ANALYZE to compare estimated vs actual costs and pg_stat_user_indexes to measure real 
+index usage; remove duplicates and unused indexes to reduce write and storage overhead. 
+
+
+## Phase 3 — Usage Metering
+
+### Hourly buckets, not per-request rows
+
+`api_usage_events` stores one row per tenant per hour per endpoint, not one
+row per API call.
+
+**Why:** Per-request logging at any real usage volume produces an unmanageable
+table. A tenant making 1,000 requests per hour generates 8.7 million rows per
+year from a single tenant. Hourly buckets reduce that to 8,760 rows per year
+per tenant — three orders of magnitude smaller — while retaining enough
+granularity for billing (which operates on monthly totals) and anomaly
+detection (which operates on hourly trends).
+
+Per-request logs belong in an observability platform (Datadog, CloudWatch).
+As a billing database the focus is counts and not events, we don't need all that.
+
+---
+
+### recorded_at truncated to the hour at the application layer
+
+The `recorded_at` column stores the bucket timestamp truncated to the hour.
+The truncation happens before insert: `date_trunc('hour', now())`.
+
+**Why:** Enforcing this at the application layer rather than with a generated
+column keeps the schema simple and the insert logic explicit. The UNIQUE
+constraint on `(tenant_id, recorded_at, endpoint)` makes the truncation
+a hard requirement — a non-truncated timestamp would create a duplicate
+violation during the next aggregation run for the same hour.
+
+---
+
+### UNIQUE constraint on (tenant_id, recorded_at, endpoint)
+
+**Why:** The aggregation job that writes to this table may run more than once
+for the same hour (retry on failure, operator re-run). Without this constraint
+a retry produces duplicate rows and inflates billing totals. The constraint
+makes the insert idempotent — the correct pattern on conflict is
+`ON CONFLICT (tenant_id, recorded_at, endpoint) DO UPDATE SET event_count = EXCLUDED.event_count`.
+
+---
+
+### endpoint stored as TEXT, not a foreign key to an endpoints table
+
+**Why:** API endpoints change over time — new versions are added, old ones are
+deprecated. A foreign key to an endpoints table would require schema migrations
+every time the API surface changes and would block inserts for any endpoint not
+yet registered. Storing endpoint as TEXT keeps the usage table decoupled from
+API versioning. Normalisation of endpoint values is enforced at the application
+layer before insert.
+
+---
+
+### billing_summaries as a materialized view, not a table
+
+**Why:** The data in `billing_summaries` is entirely derived from
+`api_usage_events`, `subscriptions`, and `plans`. There is no independent
+state. A table would require manual maintenance — triggers or application code
+to keep it in sync. A materialized view is refreshed explicitly and is always
+a consistent snapshot of the source data.
+
+`REFRESH MATERIALIZED VIEW CONCURRENTLY` allows reads during the refresh
+operation, which requires a unique index — `billing_summaries_unique_idx` on
+`(subscription_id, endpoint)` satisfies this requirement.
+
+---
+
+### past_due subscriptions included in billing_summaries
+
+The materialized view includes subscriptions with `status = 'past_due'`
+alongside active and trialing ones.
+
+**Why:** A past_due tenant is still consuming API calls. Their usage still
+needs to be tracked for billing reconciliation and for the dunning process
+(which needs to know how much they owe). Excluding past_due subscriptions
+would produce an incomplete usage picture and make it harder to recover
+revenue from delinquent accounts.
+
+---
+
+### Partitioning deferred to Phase 7
+
+`api_usage_events` will be partitioned by month on `recorded_at` in Phase 7.
+The schema is designed now to make that migration non-breaking — `recorded_at`
+is TIMESTAMPTZ, the primary key is UUID (partition-safe), and there are no
+assumptions baked into the indexes that would conflict with declarative range
+partitioning.
+
+The decision to defer is deliberate: partitioning an empty or lightly seeded
+table adds complexity with no measurable benefit. Phase 7 will migrate the
+existing table to a partitioned parent with monthly child tables.
