@@ -139,7 +139,11 @@ voided invoice must not appear in the output. If they do, the
 ### Interpretation
 
 ```
--- what changed, which indexes were picked up, what it means at scale
+The indexes were not used on any table — at 16 invoice rows and 7 tenant rows, every table fits in a single buffer page and a sequential scan is always cheaper than an index lookup at this scale. Postgres made the correct call.
+What did improve was the join strategy. If you noticed before indexes the planner used Merge Join between invoices and tenants, which required sorting both sides first — two extra Sort nodes. After indexes the planner had better row estimates and switched to Hash Join throughout, eliminating both sort steps. Total buffer reads dropped from 42 to 4. Execution time dropped from 0.163ms to 0.148ms.
+The correctness check passes — Rows Removed by Filter: 4 on the invoices scan confirms the 4 non-paid invoices (Nomad Stack's uncollectible, Pebble HR's void, and 2 open invoices) were discarded correctly. Neither appears in the output.
+At production scale with 500k+ invoice rows, invoices_tenant_status_idx will replace the Seq Scan with an Index Scan fetching only the paid bucket. The plan shape changes completely at that point, for those that might not understand this index is not redundant,
+it simply has nothing to do yet.
 ```
 
 ---
@@ -232,7 +236,10 @@ changed to an `INNER JOIN` somewhere.
 ### Interpretation
 
 ```
--- what changed, which indexes were picked up, what it means at scale
+Same story as billing_summary — all Seq Scans, tables too small for indexes to engage. The meaningful change is in the join strategy and cost estimates.
+Before indexes the planner estimated 3 output rows and produced a Nested Loop Left Join at the top level with plans looked up per-row inside the loop — 17 iterations of that index scan, 32 buffer hits just from the plans lookup alone. After indexes the planner correctly estimated 14 rows and restructured the entire plan to Hash Left Join throughout. The plans lookup moved out of the loop into a single hash build, dropping plans-related buffer hits from 32 to 1.
+Total buffer reads dropped from 35 to 4. Execution time dropped from 0.143ms to 0.128ms.
+The correctness check passes — 17 rows returned, which includes Drifter Tools appearing with NULL invoice fields as expected. The LEFT JOIN chain is working correctly.
 ```
 
 ---
@@ -352,7 +359,10 @@ Active tenants with current plan and outstanding balance.
 ### Interpretation
 
 ```
--- what changed, which indexes were picked up, what it would mean at scale
+This one had the most problematic plan before indexes. The Nested Loop Left Join for invoices ran 5 times — once per active/trialing subscription — and each iteration did a full Seq Scan of invoices discarding 14 rows to find the open ones. That is 5 × 16 = 80 invoice rows scanned to find 2 open ones. Rows Removed by Filter: 14 with loops=5 is the signal — wasted work multiplied by the loop count.
+After indexes the planner collapsed this into a single Hash Right Join — invoices scanned once, hashed once, joined once. The repeated scan is gone entirely. Buffer reads dropped from 17 to 4. Execution time dropped from 0.137ms to 0.129ms.
+At production scale this improvement is the most significant of the three. A Nested Loop with a Seq Scan inside it scales as O(subscriptions × invoices). With 50k active subscriptions and 500k invoice rows that plan is completely unusable. invoices_subscription_id_idx turns the inner scan into an index lookup, making the join O(subscriptions × invoices_per_subscription) instead.
+The correctness checks all pass — 5 rows returned, Drifter Tools shows outstanding_cents = 0, Pebble HR appears once, Nomad Stack and Defunct Systems are absent.
 ```
 
 ---
