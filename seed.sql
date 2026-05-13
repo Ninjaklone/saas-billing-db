@@ -278,3 +278,43 @@ INSERT INTO api_usage_events (tenant_id, recorded_at, endpoint, event_count) VAL
 
 -- Defunct Systems intentionally has no usage events.
 -- Their subscription was cancelled before this table existed in the schema.
+--
+--
+-- ---------------------------------------------------------------------------
+-- billing_audit_log seed
+-- ---------------------------------------------------------------------------
+-- Simulates the status history that would have been recorded had the trigger
+-- existed when the subscription and invoice seed data was inserted.
+-- Inserted directly — triggers only fire on UPDATE, not INSERT.
+
+INSERT INTO billing_audit_log (id, table_name, row_id, changed_by, old_status, new_status, changed_at) VALUES
+
+    -- Pebble HR starter subscription cancelled ahead of plan upgrade
+    ('f1000000-0000-0000-0000-000000000001',
+     'subscriptions',
+     'd1000000-0000-0000-0000-000000000004',
+     'system', 'active', 'cancelled', '2024-09-15 11:00:00+00'),
+
+    -- Nomad Stack subscription moved to past_due after failed payment
+    ('f1000000-0000-0000-0000-000000000002',
+     'subscriptions',
+     'd1000000-0000-0000-0000-000000000003',
+     'system', 'active', 'past_due', '2025-03-09 08:00:00+00'),
+
+    -- Defunct Systems subscription cancelled
+    ('f1000000-0000-0000-0000-000000000003',
+     'subscriptions',
+     'd1000000-0000-0000-0000-000000000007',
+     'system', 'active', 'cancelled', '2024-06-25 09:00:00+00'),
+
+    -- Pebble HR voided invoice (issued in error during plan change)
+    ('f1000000-0000-0000-0000-000000000004',
+     'invoices',
+     'e1000000-0000-0000-0000-000000000012',
+     'system', 'open', 'void', '2024-09-15 11:05:00+00'),
+
+    -- Nomad Stack invoice moved to uncollectible after failed collection
+    ('f1000000-0000-0000-0000-000000000005',
+     'invoices',
+     'e1000000-0000-0000-0000-000000000009',
+     'system', 'open', 'uncollectible', '2025-03-15 09:00:00+00');
