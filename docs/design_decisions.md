@@ -413,3 +413,70 @@ partitioning.
 The decision to defer is deliberate: partitioning an empty or lightly seeded
 table adds complexity with no measurable benefit. Phase 7 will migrate the
 existing table to a partitioned parent with monthly child tables.
+
+
+## Phase 4 — Audit Logging
+
+### Audit status changes only, not every column
+
+The triggers on `subscriptions` and `invoices` fire only when the `status`
+column changes. Updates to other columns (period dates, amounts) do not
+produce audit rows.
+
+**Why:** In a correctly designed append-only schema, non-status columns on
+financial records should never change after insert. If they do, that is a
+bug in the application layer, not a normal event to be audited. Auditing
+every column change would produce noise that obscures the meaningful signal —
+status transitions are the events that matter for billing, compliance, and
+support.
+
+---
+
+### Single trigger function for both tables
+
+One function — `fn_log_status_change()` — handles both `subscriptions` and
+`invoices` via `TG_TABLE_NAME`.
+
+**Why:** The logic is identical for both tables. Two separate functions would
+need to be kept in sync. A single function with `TG_TABLE_NAME` is the
+standard Postgres pattern for this case and reduces maintenance surface.
+
+---
+
+### WHEN (OLD.status IS DISTINCT FROM NEW.status) on the trigger definition
+
+The trigger uses `IS DISTINCT FROM` rather than `<>` in the WHEN clause.
+
+**Why:** `<>` returns NULL when either operand is NULL. `IS DISTINCT FROM`
+handles NULLs correctly — it returns FALSE when both sides are NULL and TRUE
+when one side is NULL and the other is not. Status columns have NOT NULL
+constraints so this distinction does not matter today. It is the correct
+habit and protects against schema changes that might relax that constraint.
+
+---
+
+### changed_by prefers app.current_user_id, falls back to current_user
+
+The trigger records the identity of whoever made the change. It checks
+`current_setting('app.current_user_id', TRUE)` first and falls back to
+`current_user` if not set.
+
+**Why:** `current_user` is the database role — useful for identifying
+automated jobs and migration scripts, but not useful for identifying which
+application user triggered the change. In production, the application sets
+`SET LOCAL app.current_user_id = '<user_uuid>'` within the transaction before
+the triggering statement. `SET LOCAL` scopes the value to the transaction and
+clears it automatically on commit or rollback — no cleanup required.
+
+---
+
+### Seed data inserted directly, not via UPDATE
+
+The audit log seed rows are inserted directly into `billing_audit_log` rather
+than replaying the historical UPDATEs that would have triggered them.
+
+**Why:** The triggers only exist from Phase 4 onwards. The subscription and
+invoice seed data was inserted in Phase 1 without triggers in place. Direct
+inserts reconstruct the audit history that would have been recorded had the
+triggers existed from the start. This keeps the seed data internally
+consistent without requiring a complex replay script.
