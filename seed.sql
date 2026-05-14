@@ -318,3 +318,39 @@ INSERT INTO billing_audit_log (id, table_name, row_id, changed_by, old_status, n
      'invoices',
      'e1000000-0000-0000-0000-000000000009',
      'system', 'open', 'uncollectible', '2025-03-15 09:00:00+00');
+
+
+     -- ---------------------------------------------------------------------------
+-- plan_change_events seed
+-- ---------------------------------------------------------------------------
+-- Reconstructs the proration event for Pebble HR's upgrade from starter
+-- ($29/month) to pro ($99/month) on 2024-09-15.
+--
+-- Billing period: 2024-09-01 to 2024-09-30 (30 days in September)
+-- Effective at:   2024-09-15
+-- Days remaining: 15 (Sep 15 to Sep 30, inclusive of change date)
+-- Days in cycle:  30
+--
+-- Old daily rate: 2900 / 30 = 96.67 cents
+-- New daily rate: 9900 / 30 = 330.00 cents
+--
+-- Credit:  FLOOR(96.67  * 15) = FLOOR(1450.05) = 1450 cents ($14.50)
+-- Charge:  CEIL(330.00  * 15) = CEIL(4950.00)  = 4950 cents ($49.50)
+-- Net:     4950 - 1450        = 3500 cents ($35.00)
+
+INSERT INTO plan_change_events (
+    id, tenant_id, subscription_id,
+    old_plan_id, new_plan_id,
+    effective_at, days_remaining, days_in_cycle,
+    credit_cents, charge_cents, net_cents, created_at
+) VALUES (
+    'g1000000-0000-0000-0000-000000000001',
+    'b1000000-0000-0000-0000-000000000004',  -- Pebble HR
+    'd1000000-0000-0000-0000-000000000004',  -- cancelled starter subscription
+    'a1000000-0000-0000-0000-000000000002',  -- starter
+    'a1000000-0000-0000-0000-000000000003',  -- pro
+    '2024-09-15 11:05:00+00',
+    15, 30,
+    1450, 4950, 3500,
+    '2024-09-15 11:05:00+00'
+);
