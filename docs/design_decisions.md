@@ -480,3 +480,69 @@ invoice seed data was inserted in Phase 1 without triggers in place. Direct
 inserts reconstruct the audit history that would have been recorded had the
 triggers existed from the start. This keeps the seed data internally
 consistent without requiring a complex replay script.
+
+
+## Phase 5 — Proration Logic
+
+### Net invoice approach — one amount, not two separate documents
+
+A plan change produces one net proration amount: charge for remaining days on
+the new plan minus credit for unused days on the old plan. This net amount
+becomes a single invoice row.
+
+**Why:** Issuing two separate documents (a credit memo and a new invoice) is
+more complex for the tenant to reconcile and more complex for the billing
+system to track. A single net invoice is what Stripe and every major billing
+platform produces. Negative net amounts (downgrades) are valid — they
+represent a credit that is applied to the next invoice.
+
+---
+
+### Daily rate uses actual cycle length, not a fixed 30 or 365
+
+The daily rate is `price_cents / (period_end::date - period_start::date)`.
+For a monthly plan this uses the actual number of days in the month. For
+an annual plan it uses the actual number of days in the year.
+
+**Why:** A fixed 30-day month overcharges tenants in short months (February)
+and undercharges in long months (January, March). Using actual cycle length
+is accurate and matches what tenants expect when they check the maths
+themselves.
+
+---
+
+### Credit rounds down, charge rounds up
+
+`credit_cents = FLOOR(old_daily_rate * days_remaining)`
+`charge_cents = CEIL(new_daily_rate  * days_remaining)`
+
+**Why:** Fractional cents cannot appear in the billing system — all amounts
+are integers. The rounding direction favours the platform by a fraction of a
+cent per transaction. The alternative (always rounding to nearest) would
+sometimes favour the tenant and sometimes the platform unpredictably.
+The chosen direction is consistent, auditable, and industry standard.
+
+---
+
+### fn_calculate_proration inserts into plan_change_events directly
+
+The function both calculates the amounts and writes the plan_change_events
+row. It does not return amounts for the caller to write separately.
+
+**Why:** Separating calculation from recording creates a window where the
+amounts are calculated but the event is never recorded — if the caller fails
+to insert after receiving the results, the change is unaudited. Combining
+both operations in the function and wrapping the call in a transaction
+guarantees that a calculation always produces a record.
+
+---
+
+### days_remaining minimum is 1
+
+`GREATEST((p_period_end::date - p_effective_at::date), 1)`
+
+**Why:** A plan change on the last day of a billing cycle would otherwise
+produce zero days remaining, zero credit, zero charge, and a zero net invoice.
+That is technically correct but creates an empty audit record and an
+unnecessary invoice. A minimum of 1 ensures the change is always recorded
+with a meaningful amount, even at the boundary.

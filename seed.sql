@@ -1,4 +1,22 @@
 -- =============================================================================
+-- UUID Prefix Convention
+-- =============================================================================
+-- All seed UUIDs follow the pattern: <prefix>000000-0000-0000-0000-00000000000N
+-- where N is the row number within that table.
+--
+-- Prefixes are two hexadecimal characters (0-9, a-f only).
+-- One prefix per table — no reuse for the sake of uniqueness.
+--
+-- Current assignments:
+--   a1 — plans
+--   a2 — plan_change_events
+--   b1 — tenants
+--   c1 — users
+--   d1 — subscriptions
+--   e1 — invoices
+--   f1 — billing_audit_log
+-- =============================================================================
+-- =============================================================================
 -- saas-billing-db: Seed Data — Phase 1
 -- =============================================================================
 -- 5 realistic tenants across varied plan types, billing cycles, subscription
@@ -344,7 +362,7 @@ INSERT INTO plan_change_events (
     effective_at, days_remaining, days_in_cycle,
     credit_cents, charge_cents, net_cents, created_at
 ) VALUES (
-    'g1000000-0000-0000-0000-000000000001',
+    'a2000000-0000-0000-0000-000000000001',
     'b1000000-0000-0000-0000-000000000004',  -- Pebble HR
     'd1000000-0000-0000-0000-000000000004',  -- cancelled starter subscription
     'a1000000-0000-0000-0000-000000000002',  -- starter
