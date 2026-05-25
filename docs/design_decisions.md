@@ -546,3 +546,104 @@ produce zero days remaining, zero credit, zero charge, and a zero net invoice.
 That is technically correct but creates an empty audit record and an
 unnecessary invoice. A minimum of 1 ensures the change is always recorded
 with a meaningful amount, even at the boundary.
+
+
+## Phase 6 — Pgbouncer Setup
+
+The contents regarding the expected setup of the pgbouncer for incoming connections
+to the database and certain disciplines when handling connections to the database 
+as a client system or as an admin can be found in ./docs/pgbouncer_setup.md.
+
+
+## Phase 7 — Partitioning
+
+### Tables chosen for partitioning
+
+`invoices` and `api_usage_events` are the only two tables that grow without
+bound. Every other table — tenants, plans, users, subscriptions — has a
+natural ceiling: the number of customers. Invoices and usage events
+accumulate indefinitely and are the correct candidates.
+
+---
+
+### Range partitioning by month on the timestamp column
+
+Both tables use `PARTITION BY RANGE` on their primary timestamp —
+`created_at` for invoices, `recorded_at` for api_usage_events.
+
+**Why monthly over weekly or daily:** Monthly partitions align with billing
+cycles — the natural query boundary for both tables. A revenue report for
+April 2025 touches exactly one invoice partition. Weekly partitions would
+require touching five partitions for the same query with no benefit. Daily
+partitions would produce 365 partitions per year — too many for the planner
+to handle efficiently.
+
+---
+
+### Rename and recreate over logical replication
+
+A maintenance window approach was chosen over a zero-downtime logical
+replication migration.
+
+**Why:** At current data volumes a bulk copy takes seconds. The operational
+complexity of logical replication migration — replication slot management,
+WAL accumulation risk, index recreation sequencing, trigger behaviour on
+partitioned tables — is not justified by a 10-second maintenance window.
+
+**Production note:** For a live billing system with millions of rows where
+insert failures have financial consequences, logical replication is the
+correct approach. The full procedure is: create partitioned table alongside
+old table, establish logical replication, backfill historical data, wait for
+lag to reach zero, cutover inside a single transaction with an ACCESS
+EXCLUSIVE lock window of seconds.
+
+---
+
+### Default partition on both tables
+
+A default partition catches rows that fall outside all explicit partition
+ranges.
+
+**Why:** Without a default partition, an insert for a month with no
+partition fails with an error. For invoices, a failed insert is a lost
+financial record — unacceptable. The default partition trades the risk of
+a hard failure for the risk of a growing catch-all partition. The latter
+is detectable and recoverable; the former is not.
+
+The default partition is monitored monthly. Any rows found there mean
+partition creation has fallen behind — create the missing partition and
+move the rows with:
+
+```sql
+WITH moved AS (
+    DELETE FROM invoices_default
+    WHERE created_at >= '2025-10-01' AND created_at < '2025-11-01'
+    RETURNING *
+)
+INSERT INTO invoices SELECT * FROM moved;
+```
+
+---
+
+### Indexes created on the parent table
+
+All indexes are created on the partitioned parent, not on individual
+child partitions.
+
+**Why:** Indexes on the parent automatically propagate to all existing
+partitions and to any future partitions created later. Creating indexes
+on child partitions individually would require updating the partition
+creation script every time a new index is added — a maintenance trap.
+
+---
+
+### Ongoing partition creation via pg_cron
+
+New partitions must exist before the month they cover begins. The
+recommended approach is a pg_cron job scheduled for midnight on the
+first of each month, creating the partition three months ahead.
+
+Three months of future partitions are pre-created at migration time.
+This provides a buffer — if the cron job fails for two consecutive months,
+the third pre-created partition prevents data loss. On the fourth missed
+month, rows fall into the default partition rather than failing.
