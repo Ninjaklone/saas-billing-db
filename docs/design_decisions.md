@@ -562,7 +562,9 @@ as a client system or as an admin can be found in ./docs/pgbouncer_setup.md.
 `invoices` and `api_usage_events` are the only two tables that grow without
 bound. Every other table — tenants, plans, users, subscriptions — has a
 natural ceiling: the number of customers. Invoices and usage events
-accumulate indefinitely and are the correct candidates.
+accumulate indefinitely and are the correct candidates. Its always a good
+idea to figure out such tables during the planning/business requirements
+phase of a project.
 
 ---
 
