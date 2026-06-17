@@ -62,3 +62,12 @@ max_replication_slots       = 5
 listen_addresses            = '*'
 port                        = 5433
 ```
+
+
+### `pg_hba.conf`
+
+Add this entry to allow the replication user to connect from the standby:
+```ini 
+TYPE  DATABASE        USER            ADDRESS                 METHOD
+host    replication     replicator      <standby-ip>/32         scram-sha-256
+```
