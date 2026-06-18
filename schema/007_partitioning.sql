@@ -1,4 +1,3 @@
--- Not yet implemented - Still looking to improve the query.
 -- psql -h localhost -U postgres -d saas-billing-db -f .\schema\007_partitioning.sql
 -- =============================================================================
 -- Migration: 007_partitioning
