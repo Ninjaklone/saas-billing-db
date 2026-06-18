@@ -649,3 +649,27 @@ Three months of future partitions are pre-created at migration time.
 This provides a buffer — if the cron job fails for two consecutive months,
 the third pre-created partition prevents data loss. On the fourth missed
 month, rows fall into the default partition rather than failing.
+
+
+## Phase 7 — Partitioning (addendum) **VERY IMPORTANT**
+
+### Composite primary key on partitioned tables
+
+`invoices` and `api_usage_events` have primary keys of `(id, created_at)`
+and `(id, recorded_at)` respectively, rather than `id` alone like every
+other table in the schema.
+
+**Why:** Postgres requires that any unique constraint on a partitioned
+table — including the primary key — include the partition key as one of
+its columns. This is because uniqueness on a partitioned table is enforced
+per-partition, not globally. Each partition has its own independent index;
+a `PRIMARY KEY (id)` alone would only guarantee `id` is unique within a
+single partition, not across the whole table. Two different partitions
+could silently contain rows with the same `id` and Postgres would never
+detect it.
+
+Including the partition key in the primary key forces any potential
+collision to occur within a single partition, where the per-partition
+index can actually catch it. This is a Postgres mechanical requirement,
+not a design choice — attempting `PRIMARY KEY (id)` on a table partitioned
+by `created_at` fails immediately with:

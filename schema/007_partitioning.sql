@@ -255,6 +255,8 @@ ALTER INDEX api_usage_events_tenant_recorded_idx
     RENAME TO api_usage_events_old_tenant_recorded_idx;
 ALTER INDEX api_usage_events_recorded_at_idx
     RENAME TO api_usage_events_old_recorded_at_idx;
+ALTER INDEX api_usage_events_unique 
+	RENAME TO api_usage_events_old_unique;
 
 
 -- ---------------------------------------------------------------------------
