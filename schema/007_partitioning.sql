@@ -1,4 +1,5 @@
 -- Not yet implemented - Still looking to improve the query.
+-- psql -h localhost -U postgres -d saas-billing-db -f .\schema\007_partitioning.sql
 -- =============================================================================
 -- Migration: 007_partitioning
 -- Phase:     7
@@ -22,7 +23,7 @@
 -- Design decisions: /docs/design_decisions.md — Phase 7
 -- =============================================================================
 
-
+BEGIN;
 -- ===========================================================================
 -- INVOICES
 -- ===========================================================================
@@ -43,8 +44,32 @@ ALTER INDEX invoices_created_at_idx      RENAME TO invoices_old_created_at_idx;
 -- ---------------------------------------------------------------------------
 -- Step 2 — create new partitioned table
 -- ---------------------------------------------------------------------------
+-- CREATE TABLE invoices (
+--     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+--     tenant_id       UUID        NOT NULL REFERENCES tenants(id),
+--     subscription_id UUID        NOT NULL REFERENCES subscriptions(id),
+--     amount_cents    INT         NOT NULL,
+--     status          TEXT        NOT NULL,
+--     due_date        DATE        NOT NULL,
+--     paid_at         TIMESTAMPTZ,
+--     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+--     CONSTRAINT invoices_amount_non_negative CHECK (amount_cents >= 0),
+--     CONSTRAINT invoices_status_valid        CHECK (status IN ('draft', 'open', 'paid', 'void', 'uncollectible')),
+--     CONSTRAINT invoices_paid_consistency    CHECK (
+--         (status = 'paid' AND paid_at IS NOT NULL)
+--         OR (status <> 'paid' AND paid_at IS NULL)
+--     ),
+--     CONSTRAINT invoices_paid_after_created  CHECK (paid_at IS NULL OR paid_at >= created_at),
+--     CONSTRAINT invoices_due_date_valid      CHECK (due_date >= created_at::DATE)
+-- ) PARTITION BY RANGE (created_at);
+
+-- COMMENT ON TABLE invoices
+--     IS 'Financial ledger. APPEND-ONLY. Partitioned by month on created_at.';
+
+-- invoices: composite primary key including the partition key
 CREATE TABLE invoices (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              UUID        NOT NULL DEFAULT gen_random_uuid(),
     tenant_id       UUID        NOT NULL REFERENCES tenants(id),
     subscription_id UUID        NOT NULL REFERENCES subscriptions(id),
     amount_cents    INT         NOT NULL,
@@ -52,6 +77,8 @@ CREATE TABLE invoices (
     due_date        DATE        NOT NULL,
     paid_at         TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT invoices_pkey PRIMARY KEY (id, created_at),
 
     CONSTRAINT invoices_amount_non_negative CHECK (amount_cents >= 0),
     CONSTRAINT invoices_status_valid        CHECK (status IN ('draft', 'open', 'paid', 'void', 'uncollectible')),
@@ -62,9 +89,6 @@ CREATE TABLE invoices (
     CONSTRAINT invoices_paid_after_created  CHECK (paid_at IS NULL OR paid_at >= created_at),
     CONSTRAINT invoices_due_date_valid      CHECK (due_date >= created_at::DATE)
 ) PARTITION BY RANGE (created_at);
-
-COMMENT ON TABLE invoices
-    IS 'Financial ledger. APPEND-ONLY. Partitioned by month on created_at.';
 
 
 -- ---------------------------------------------------------------------------
@@ -236,20 +260,34 @@ ALTER INDEX api_usage_events_recorded_at_idx
 -- ---------------------------------------------------------------------------
 -- Step 2 — create new partitioned table
 -- ---------------------------------------------------------------------------
+-- CREATE TABLE api_usage_events (
+--     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+--     tenant_id   UUID        NOT NULL REFERENCES tenants(id),
+--     recorded_at TIMESTAMPTZ NOT NULL,
+--     endpoint    TEXT        NOT NULL,
+--     event_count INT         NOT NULL,
+
+--     CONSTRAINT api_usage_events_count_positive CHECK (event_count > 0),
+--     CONSTRAINT api_usage_events_unique UNIQUE (tenant_id, recorded_at, endpoint)
+-- ) PARTITION BY RANGE (recorded_at);
+
+-- COMMENT ON TABLE api_usage_events
+--     IS 'Hourly bucketed API call counts per tenant per endpoint. Partitioned by month on recorded_at.';
+
+
+-- api_usage_events: same composite key fix
 CREATE TABLE api_usage_events (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID        NOT NULL DEFAULT gen_random_uuid(),
     tenant_id   UUID        NOT NULL REFERENCES tenants(id),
     recorded_at TIMESTAMPTZ NOT NULL,
     endpoint    TEXT        NOT NULL,
     event_count INT         NOT NULL,
 
+    CONSTRAINT api_usage_events_pkey PRIMARY KEY (id, recorded_at),
+
     CONSTRAINT api_usage_events_count_positive CHECK (event_count > 0),
     CONSTRAINT api_usage_events_unique UNIQUE (tenant_id, recorded_at, endpoint)
 ) PARTITION BY RANGE (recorded_at);
-
-COMMENT ON TABLE api_usage_events
-    IS 'Hourly bucketed API call counts per tenant per endpoint. Partitioned by month on recorded_at.';
-
 
 -- ---------------------------------------------------------------------------
 -- Step 3 — create monthly partitions
@@ -349,7 +387,7 @@ CREATE INDEX api_usage_events_recorded_at_idx
 INSERT INTO api_usage_events
 SELECT * FROM api_usage_events_old;
 
-
+END;
 -- ---------------------------------------------------------------------------
 -- Step 6 — verify row counts
 -- ---------------------------------------------------------------------------
@@ -398,7 +436,8 @@ SELECT * FROM api_usage_events_old;
 -- ===========================================================================
 -- ROLLBACK PLAN
 -- ===========================================================================
--- If anything fails before Step 8 (DROP TABLE), the backup tables are intact.
+-- If anything fails before Step 8 (DROP TABLE), the backup tables are intact
+-- or just systematically wrap the query in transactions like a sane person.
 -- To rollback:
 --
 -- For invoices:
