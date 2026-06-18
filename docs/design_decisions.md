@@ -673,3 +673,22 @@ collision to occur within a single partition, where the per-partition
 index can actually catch it. This is a Postgres mechanical requirement,
 not a design choice — attempting `PRIMARY KEY (id)` on a table partitioned
 by `created_at` fails immediately with:
+
+```
+ERROR: unique constraint on partitioned table must include all
+partitioning columns
+```
+**Practical impact:** `id` remains effectively globally unique in practice
+because `gen_random_uuid()` makes a collision astronomically unlikely
+regardless of constraint shape. What is lost is Postgres's ability to
+*prove* that uniqueness at the database level with a single-column key.
+This is a provability trade-off, not a real-world data integrity risk.
+
+**Foreign key check:** No other table references `invoices.id` or
+`api_usage_events.id` as a foreign key target, so widening the primary key
+to a composite does not break any existing relationship. This was verified
+against the full schema before applying the change. If a future phase adds
+a table that needs to reference an individual invoice row by `id` alone,
+that foreign key will need to reference a separate `UNIQUE (id)` constraint
+added specifically for that purpose, since the composite primary key cannot
+serve as a single-column foreign key target.
