@@ -418,7 +418,40 @@ END;
 --     '0 0 1 * *',    -- midnight on the first of every month
 --     $$ <insert partition creation statements for next month here> $$
 -- );
---
+-- ===========================================================================
+-- FUTURE MONTHS PARTITIONING FUNCTION
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION ensure_next_month_partition()
+RETURNS void AS $$
+DECLARE
+    next_month_start DATE := date_trunc('month', now()) + interval '1 month';
+    next_month_end   DATE := next_month_start + interval '1 month';
+    partition_name   TEXT := 'invoices_' || to_char(next_month_start, 'YYYY_MM');
+BEGIN
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS %I PARTITION OF invoices
+         FOR VALUES FROM (%L) TO (%L);',
+        partition_name, next_month_start, next_month_end
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- You can then automate it with pg_cron
+-- It is worth noting though that this will only be possible on Linux systems 
+-- as pg_cron has no windows build. Albeit there are alternatives but thats 
+-- beyond the scope of my portfolio project. For windows you could just use
+-- Windows Task Scheduler. It would look something like:
+-- $action = New-ScheduledTaskAction -Execute "psql.exe" -Argument "-d saas_billing -f C:\path\to\create_next_partition.sql"
+-- $trigger = New-ScheduledTaskTrigger -Monthly -DaysOfMonth 1 -At 12:00AM
+-- Register-ScheduledTask -TaskName "CreateMonthlyPartitions" -Action $action -Trigger $trigger
+-- Here is the pg_cron job:
+
+SELECT cron.schedule(
+    'create-monthly-partitions',
+    '0 0 1 * *',
+    $$ CALL ensure_next_month_partition(); $$
+);
+
 -- Example — add this each month for the month three months ahead:
 --
 -- CREATE TABLE invoices_2025_10 PARTITION OF invoices
