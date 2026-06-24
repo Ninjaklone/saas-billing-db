@@ -148,3 +148,29 @@ A logged slow query looks like:
 ```
 2025-04-15 09:14:22 UTC [4821]: user=app_user,db=saas_billing,app=billing-api,client=10.0.1.4 LOG:  duration: 312.441 ms  statement: SELECT * FROM invoices WHERE tenant_id = $1 AND status = $2
 ```
+
+The `app=` field (from `application_name` set on the connection) tells you
+which service issued the query — useful when multiple services share the
+database.
+
+### Finding slow queries from the log on a running system
+
+If structured log shipping isn't set up yet, grep the raw log file directly:
+
+```bash
+grep "duration:" /var/log/postgresql/postgresql.log | sort -t: -k4 -rn | head -20
+```
+
+---
+
+## What to do when a slow query is found
+
+1. Run `EXPLAIN (ANALYZE, BUFFERS)` on the exact query with representative
+   parameters
+2. Check for `Seq Scan` on a table where an `Index Scan` is expected — see
+   `queries/README.md` for the established pattern
+3. If a new index is needed, follow the migration pattern from Phase 2 —
+   no undocumented index additions
+4. Re-run `EXPLAIN ANALYZE` after the fix and confirm the plan changed
+5. Document the fix in `design_decisions.md` if the root cause reveals a
+   schema or query pattern issue worth recording
