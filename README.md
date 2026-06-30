@@ -182,3 +182,26 @@ of this repo — the documentation describes the path to do so, written
 from hands-on local replication and pooling setups.
 
 ---
+
+## Roadmap — data engineering track (Phases 11–14)
+
+The DBA track (this README's scope) is complete. I plan to extend scope using a
+modern data platform on top of the existing PostgreSQL billing
+data:
+
+| Phase | Focus |
+|---|---|
+| 11 | Kafka → Airflow pipeline, raw data lake on S3/GCS |
+| 12 | Apache Iceberg lakehouse + Trino query layer |
+| 13 | PySpark distributed processing + dbt bronze/silver/gold models |
+| 14 | Great Expectations data quality checks + DataHub lineage |
+
+These phases are not yet started. The billing data already in PostgreSQL
+is the intended upstream source for all four phases when work begins.
+
+---
+
+## License
+
+This is a portfolio project. Schema, queries, and documentation are
+provided as-is for demonstration purposes.
