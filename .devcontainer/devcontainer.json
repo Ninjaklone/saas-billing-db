@@ -1,0 +1,47 @@
+{
+  "name": "saas-billing-db-dataeng",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": true
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    }
+  },
+
+  // Recommended machine type when creating the Codespace from the UI: 4-core, 16GB.
+  // Kafka (KRaft, single broker) + Airflow (webserver + scheduler + Postgres metadata db)
+  // is tight but workable on 4 cores. Go 2-core only if you stop services you're not
+  // actively using (see docs/dev_environment_setup.md for how the math will look).
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb"
+  },
+
+  "forwardPorts": [8080, 9092, 8081],
+  "portsAttributes": {
+    "8080": { "label": "Airflow UI", "onAutoForward": "notify" },
+    "9092": { "label": "Kafka broker", "onAutoForward": "silent" },
+    "8081": { "label": "Kafka UI", "onAutoForward": "notify" }
+  },
+
+  // Pulls images and starts the stack automatically once the Codespace is created.
+  // Does NOT run on every restart (postStartCommand below handles that) so you don't
+  // burn core-hours re-pulling images each time you resume.
+  "postCreateCommand": "docker compose pull && docker compose up -d",
+  "postStartCommand": "docker compose up -d",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+
+  "remoteUser": "vscode"
+}
