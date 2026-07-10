@@ -7,14 +7,23 @@ x-airflow-common: &airflow-common
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-metadata-db/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
-    # Billing source DB connection — read by the DAG/consumer code via Airflow Connections,
-    # NOT hardcoded. Set actual values in .env (gitignored). See dev_environment_setup.md.
+    # Packages installed into the Airflow containers at startup.
+    # confluent-kafka: producer/consumer client
+    # psycopg2-binary: Postgres driver for billing_audit_log reads
+    # boto3: AWS S3 client for raw landing zone writes
+    _PIP_ADDITIONAL_REQUIREMENTS: "confluent-kafka psycopg2-binary boto3"
+    # Billing source DB — set real values in .env (gitignored).
     BILLING_DB_HOST: ${BILLING_DB_HOST}
     BILLING_DB_PORT: ${BILLING_DB_PORT}
     BILLING_DB_NAME: ${BILLING_DB_NAME}
     BILLING_DB_USER: ${BILLING_DB_USER}
     BILLING_DB_PASSWORD: ${BILLING_DB_PASSWORD}
     KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+    # AWS credentials for S3 raw landing zone — set real values in .env (gitignored).
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+    S3_RAW_LANDING_BUCKET: ${S3_RAW_LANDING_BUCKET}
   volumes:
     - ./pipeline/airflow/dags:/opt/airflow/dags
     - ./pipeline/airflow/logs:/opt/airflow/logs
@@ -49,8 +58,8 @@ services:
       - |
         mkdir -p /opt/airflow/logs/scheduler
         chown -R 50000:0 /opt/airflow/logs
-        exec gosu airflow airflow db migrate
-        exec gosu airflow airflow users create \
+        airflow db migrate
+        airflow users create \
           --username admin --password admin \
           --firstname Gara --lastname Joshua \
           --role Admin --email admin@example.com || true
