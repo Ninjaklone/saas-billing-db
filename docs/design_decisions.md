@@ -692,3 +692,67 @@ a table that needs to reference an individual invoice row by `id` alone,
 that foreign key will need to reference a separate `UNIQUE (id)` constraint
 added specifically for that purpose, since the composite primary key cannot
 serve as a single-column foreign key target.
+
+
+## Decision: Set `AIRFLOW_UID` explicitly; stop tracking `pipeline/airflow/logs/`
+
+**Date:** 2026-07-10
+**Phase:** 11 (Pipeline + Orchestration)
+
+### Context
+
+`git pull` started failing with `Permission denied` on files under
+`pipeline/airflow/logs/` (e.g. `dag_processor_manager.log`), and separately
+with untracked-file collisions on `.gitkeep` placeholders in
+`pipeline/airflow/dags/` and `pipeline/kafka/`.
+
+### Root cause
+
+The Airflow containers write into bind-mounted host directories
+(`pipeline/airflow/logs/`, etc.) as whatever UID the container process runs
+as. Without an explicit `AIRFLOW_UID`, that defaults to root (or an
+image-internal UID) inside the container. On the host side, my Codespaces
+user is a non-standard UID (`197609`, confirmed via `id -u` — Codespaces
+assigns the `codespace` user a high UID rather than the traditional 1000).
+Files written by the container as root cannot be deleted or overwritten by
+my host user, so any `git pull`/checkout that needs to touch those files
+fails at the filesystem level — this is a permissions issue, not a Git
+issue.
+
+Separately, `pipeline/airflow/logs/*.log` had been committed at some point
+(likely an early `git add .` before the directory was gitignored), which is
+why pulls kept re-triggering the conflict.
+
+### Fix
+
+1. Set `AIRFLOW_UID=197609` in `.env.example` so the Airflow containers
+   write files as my actual host UID instead of root. Confirmed via
+   `id -u` inside the Codespace — do not assume `1000`; Codespaces UIDs are
+   often much higher.
+2. Untracked the runtime logs directory and added it to `.gitignore`:
+   ```
+   pipeline/airflow/logs/
+   ```
+   Logs are runtime output, not source — they don't belong in version
+   control regardless of UID.
+3. One-time cleanup for the immediate blocker:
+   ```bash
+   sudo chown -R $(id -u):$(id -g) pipeline/airflow/logs
+   rm -f pipeline/airflow/dags/.gitkeep pipeline/kafka/.gitkeep
+   git pull
+   ```
+
+### Why this matters going forward
+
+Any bind-mounted container directory (Airflow logs, and later Kafka
+data/logs in Phase 11, or Spark event logs in Phase 13) is a candidate for
+this same failure mode. The general rule: **set the container's UID to
+match the host UID via env var whenever the image supports it, and gitignore
+anything the container writes at runtime.** Don't rely on the default UID
+in any Docker image's quickstart config — verify with `id -u` per
+environment, since Codespaces UIDs don't follow the common `1000` default.
+
+### JD requirement addressed
+
+N/A — this is infrastructure/tooling hygiene supporting Phase 11 delivery,
+not a standalone JD deliverable.
