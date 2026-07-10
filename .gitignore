@@ -4,4 +4,5 @@ saas_billing_db_directory_structure.html
 docs/schema_diagram.dbml
 rough/
 dumps/  
-.envpipeline/airflow/logs/
+.env
+pipeline/airflow/logs/
